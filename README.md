@@ -16,8 +16,8 @@ Originally taken from the cleanbuild provided by Rob at BigFish
 	4. moreutils (useful "missing" Unix utils)
 	5. ncdu (ncurses "where's my diskspace gone" utility)
 	6. node (mainly for npm)
-	6a. bower
-	6b. gulp
+		6a. bower
+		6b. gulp
 	7. sqlite (no-overhead SQL databases)
 	8. vim (a text editor for champions)
 5. Installs homebrew casks, and installs the following applications:
