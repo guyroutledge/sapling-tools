@@ -1,0 +1,270 @@
+#!/bin/zsh
+#set -x 
+
+export LOGFILE="$HOME/cleanbuild.log"
+
+echo "\n"
+echo "Output being written to $LOGFILE"
+echo "`date`: Starting cleanbuild ..." > $LOGFILE
+
+###################################
+# Components that will be installed
+###################################
+
+brew_components="ack git imagemagick moreutils ncdu node sqlite vim"
+node_components="bower gulp"
+cask_components="adium airfoil alfred charles dropbox firefox google-chrome iterm2 mamp opera sequel-pro skype spotify sublime-text the-unarchiver vlc"
+gem_components="compass jekyll kramdown capistrano bundler"
+remove_apps="Launchpad Contacts Calendar Notes Maps Messages FaceTime iBooks"
+
+###########
+# Functions
+###########
+
+function command_exists() {
+	type $1 >/dev/null 2>&1
+}
+
+function brew_installed() {
+	brew list -1 | grep -q $1
+}
+
+function cask_installed() {
+	brew cask list | grep -q $1
+}
+
+function gem_installed() {
+	gem list -i $1 >/dev/null 2>&1
+}
+
+function install_configuration() {
+	# Run a noop command as sudo, so that the rest of the script runs during
+	# the sudo grace period
+	echo "Getting sudo privileges. Enter your account password if prompted"
+	sudo /bin/date > /dev/null 2>&1
+
+	sudo chown -R `whoami` /usr/local
+
+	# Configure curl to always show progress bars
+	[[ -e ~/.curlrc ]] || echo progress-bar >> ~/.curlrc
+
+	command_exists "clang" || { echo "Installing the XCode command line tools"; xcode-select --install }
+
+	[[ -d ~/bin ]] || mkdir ~/bin
+}
+
+function install_zshell() {
+	if [[ $SHELL:t != "zsh" ]]; then
+		echo "\n"
+		echo "Changing shell to zsh. Enter your account password if prompted"
+		chsh -s /bin/zsh
+	fi
+
+	if [[ $SHELL:t != "zsh" ]]; then
+		echo "ERROR: Your shell doesn't seem to be ZSH." >> $LOGFILE
+		echo "Try opening a new terminal window and running the script again." >> $LOGFILE
+		exit 1
+	fi
+
+	# oh-my-zsh
+	if [[ ! -e ~/.oh-my-zsh ]]; then
+		echo "\n" >> $LOGFILE
+		echo "Installing oh-my-zsh" >> $LOGFILE
+	
+		git clone git://github.com/robbyrussell/oh-my-zsh.git ~/.oh-my-zsh 
+		cp ~/.oh-my-zsh/templates/zshrc.zsh-template ~/.zshrc 
+		echo "Finished installing oh-my-zsh" 
+
+		# Change the default ZSH prompt
+		sed -i '' 's/robbyrussell/blinks/' ~/.zshrc 
+
+		echo "Finished installing oh-my-zsh." >> $LOGFILE
+		echo "You need to open a new terminal window and run this script again." >> $LOGFILE
+		echo "You need to open a new terminal window and run this script again." 
+		exit
+	fi
+}
+
+function install_homebrew() {
+	if ! command_exists "brew"; then
+		echo "\n" >> $LOGFILE
+		echo "Installing Homebrew" >> $LOGFILE
+		ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/homebrew/go/install)"
+		echo "Finished installing Homebrew" >> $LOGFILE
+	else
+		brew update 
+	fi
+
+	if ! command_exists "brew"; then
+		echo "ERROR: I can't seem to find the brew command." >> $LOGFILE
+		echo "Try opening a new terminal window and running the script again." >> $LOGFILE
+		echo "Otherwise check your \$PATH." >> $LOGFILE
+		exit 1
+	fi
+
+	for component in `echo $brew_components`; do
+		if ! brew_installed $component; then
+			echo "\n" >> $LOGFILE
+			echo "Installing $component" >> $LOGFILE
+			brew install $component 
+			echo "Finished installing $component" 
+		fi
+	done
+
+	if command_exists "node"; then
+		for component in `echo $node_components`; do
+			if ! command_exists $component; then
+				echo "\n" >> $LOGFILE
+				echo "Installing $component" >> $LOGFILE 
+				npm install -g $component  
+				echo "Finished installing $component" >> $LOGFILE 
+			fi
+		done
+	else
+		echo "node not installed successfully" >> $LOGFILE
+	fi
+}
+
+function install_homebrew_casks() {
+
+	# Allow the use of Homebrew Casks:
+	# https://github.com/phinze/homebrew-cask
+	brew tap phinze/cask > /dev/null 2>&1
+	brew_installed brew-cask || brew install brew-cask
+
+	export HOMEBREW_CASK_OPTS="--appdir=/Applications"
+
+	for cask in `echo $cask_components`; do 
+		if ! cask_installed $cask; then
+			echo "\n" >> $LOGFILE
+			echo "Installing $cask" >> $LOGFILE
+			brew cask install $cask 
+		fi
+	done
+}
+
+
+function git_setup() {
+
+	if [[ ! -e ~/.gitconfig ]]; then
+		echo "\n" >> $LOGFILE
+		echo "Fetching a base .gitconfig file" >> $LOGFILE
+
+		# A sensible default git config, minus personal data
+		curl https://raw.githubusercontent.com/robmiller/dotfiles/master/gitconfig | tail -n+4 >> ~/.gitconfig
+	fi
+
+	if ! grep -q email ~/.gitconfig; then
+		echo "\n"
+		echo "Configuring personal information for Git"
+
+		# Prompt the user for their personal information, to use in the
+		# .gitconfig file
+		fullname=
+		email=
+		vared -p "What's your full name? " fullname
+		vared -p "What's your email address? " email
+
+		echo "Setting git config to use $fullname <$email>." >> $LOGFILE
+		git config --global user.name "$fullname"
+		git config --global user.email "$email"
+	fi
+}
+
+function install_ruby() {
+	if ! command_exists "rvm"; then
+		echo "\n" >> $LOGFILE
+		echo "Installing RVM, the Ruby Version Manager" >> $LOGFILE
+		\curl -sSL https://get.rvm.io | bash 
+		echo "Finished installing RVM" >> $LOGFILE
+	fi
+
+	if ! command_exists "rvm"; then
+		echo "ERROR: I can't find RVM." >> $LOGFILE
+		echo "Try opening a new terminal window and running this script again." >> $LOGFILE
+		exit 1
+	fi
+
+	if ! ruby --version | grep -q 2.1.1; then
+		echo "Installing some ruby components" >> $LOGFILE
+		[[ -s "$HOME/.rvm/scripts/rvm" ]] && . "$HOME/.rvm/scripts/rvm" 
+		rvm autolibs homebrew 
+		rvm install 2.1.1 
+		rvm use 2.1.1 --default 
+		echo "Finished installing some ruby components" >> $LOGFILE
+	fi
+
+	# Disable the installation of documentation along with Ruby gems, since
+	# it slows things down
+	[[ -f ~/.gemrc ]] || echo "gem: --no-document" > ~/.gemrc
+	echo "\n" >> $LOGFILE
+	echo "Installing ruby gems" >> $LOGFILE
+	gem_installed "compass"    || gem install compass 
+	gem_installed "jekyll"     || gem install jekyll 
+	gem_installed "kramdown"   || gem install kramdown 
+	gem_installed "capistrano" || gem install -v 2.15.5 capistrano 
+	gem_installed "bundler"    || gem install bundler 
+	echo "Finished installing ruby gems" >> $LOGFILE
+}
+
+function install_python() {
+	command_exists "pip" || sudo easy_install pip 
+	command_exists "http" || sudo pip install httpie 
+}
+
+function install_dock() {
+
+	echo "\n" >> $LOGFILE
+	echo "Installing applications to dock" >> $LOGFILE
+
+	kcrawford="https://raw.githubusercontent.com/kcrawford/dockutil/master/scripts/dockutil" 
+	curl $kcrawford > ~/bin/dockutil && chmod +x ~/bin/dockutil 
+
+	# Remove the default apps
+	for icon in `echo $remove_apps` "Photo Booth" "App Store"; do 
+		~/bin/dockutil --remove "$icon" --no-restart >/dev/null 2>&1
+	done
+
+	# Add some sensible defaults
+	dockutil --add '/Applications/Google Chrome.app' --position 1 --no-restart >/dev/null 2>&1
+	dockutil --add '/Applications/Sublime Text 2.app' --position 2 --no-restart >/dev/null 2>&1
+	dockutil --add '/Applications/iTerm.app' --position 3 >/dev/null 2>&1
+
+	echo "Finished installing applications to dock" >> $LOGFILE
+}
+
+function report_installed() {
+
+	echo "\n\n"
+	echo "**************************"
+	echo "** Installed Components **"
+	echo "**************************"
+	echo "\n\n"
+
+	echo "Gems installed: " >> $LOGFILE
+	gem list >> $LOGFILE
+
+	echo "Hombrew components installed:" >> $LOGFILE
+	brew list -1 >> $LOGFILE
+
+	echo "Node components installed:" >> $LOGFILE
+	npm list >> $LOGFILE
+}
+
+
+########
+# MAIN #
+########
+
+install_configuration
+install_zshell
+install_homebrew
+install_homebrew_casks
+git_setup
+install_ruby
+install_python
+install_dock
+report_installed
+
+echo "`date`: cleanbuild all finished!" >> $LOGFILE
+echo "All finished!"
